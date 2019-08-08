@@ -1,6 +1,15 @@
 
-function useNative() {
-    const NativeCustomEvent = (window as any).CustomEvent;
+declare global {
+    interface Window { CustomEvent: any; Event: any; }
+}
+
+/**
+ * preventDefault 的行为是否可用
+ *
+ * @returns {boolean}
+ */
+function checkPreventDefault(): boolean {
+    const NativeCustomEvent = window.CustomEvent;
     try {
         var p = new NativeCustomEvent('cat', { detail: { foo: 'bar' } });
         p.preventDefault();
@@ -9,6 +18,22 @@ function useNative() {
             // http://stackoverflow.com/questions/23349191
             throw new Error('Could not prevent default');
         }
+        return 'cat' === p.type && 'bar' === p.detail.foo;
+    } catch (e) {
+    }
+    return false;
+}
+
+
+/**
+ * 是否存在原始 CustomEvent 对象
+ *
+ * @returns {boolean}
+ */
+function useNative(): boolean {
+    const NativeCustomEvent = window.CustomEvent;
+    try {
+        var p = new NativeCustomEvent('cat', { detail: { foo: 'bar' } });
         return 'cat' === p.type && 'bar' === p.detail.foo;
     } catch (e) {
     }
@@ -39,6 +64,8 @@ export interface ICustomEventParams {
 
 }
 
+
+
 function _CustomEventPolyfill() {
     // 没有 window 对象
     if (typeof window === 'undefined') {
@@ -56,22 +83,6 @@ function _CustomEventPolyfill() {
             const { bubbles = false, cancelable = false, detail = null } = params;
             const evt = document.createEvent('CustomEvent');
             evt.initCustomEvent(type, bubbles, cancelable, detail);
-
-            // 解决 IE 中的 `preventDefault` 属性的问题
-            const origPrevent = evt.preventDefault;
-            evt.preventDefault = function () {
-                origPrevent.call(this);
-                try {
-                    Object.defineProperty(this, 'defaultPrevented', {
-                        get: function () {
-                            return true;
-                        }
-                    });
-                } catch (e) {
-                    this.defaultPrevented = true;
-                }
-            }
-
             return evt;
         } :
 
@@ -84,14 +95,34 @@ function _CustomEventPolyfill() {
                 evt.cancelable = Boolean(cancelable);
                 evt.detail = detail;
                 return evt;
-            }
+            };
 
-    CustomEvent.prototype = (window as any).Event.prototype;
-    (window as any).CustomEvent = CustomEvent;
+    (CustomEvent as any).prototype = window.Event.prototype;
+    window.CustomEvent = CustomEvent;
+}
+
+function _CustomEventPreventDefaultPolyfill() {
+    if (!checkPreventDefault()) {
+
+        // 解决 IE 中的 `preventDefault` 属性的问题
+        const preventDefault = window.CustomEvent.prototype.preventDefault; 
+        window.CustomEvent.prototype.preventDefault = function () {
+            preventDefault.apply(this, arguments); try {
+                Object.defineProperty(this, 'defaultPrevented', {
+                    get: function () {
+                        return true;
+                    }
+                });
+            } catch (e) {
+                this.defaultPrevented = true;
+            }};
+    }
 }
 
 // 执行 polyfill
 _CustomEventPolyfill();
+// 针对 preventDefault 进行 polyfill
+_CustomEventPreventDefaultPolyfill();
 
 var TARGET = document;
 var EVENTS: { [key: string]: EventHandlerNonNull} = {};
